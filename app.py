@@ -5,21 +5,112 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from groq import Groq
+import os
+
+groq_api_key = "you_can_use_ur_api_key"
 
 # -----------------------------
-# Page Config
+# PAGE CONFIG
 # -----------------------------
-st.set_page_config(page_title="PDF Chatbot", layout="centered")
+st.set_page_config(page_title="Dcoumnet AI Assistant", layout="wide")
 
-# 🔝 VERY TOP (after imports)
+# -----------------------------
+# CUSTOM CSS (🔥 CORE DESIGN)
+# -----------------------------
 st.markdown("""
-<h1 style='text-align: center;'>🤖 PDF Chatbot</h1>
-<p style='text-align: center;'>Ask anything from your document</p>
+<style>
+
+/* Streamlit background fix */
+[data-testid="stAppViewContainer"] {
+    background: linear-gradient(135deg, #eef2ff, #f8fafc);
+}
+
+/* Remove white header */
+[data-testid="stHeader"] {
+    background: transparent;
+}
+
+[data-testid="stToolbar"] {
+    background: transparent;
+}
+
+/* Center main container */
+.block-container {
+    max-width: 900px;
+    margin: auto;
+}
+
+/* Glass effect */
+.glass {
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(12px);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0px 4px 20px rgba(0,0,0,0.05);
+}
+
+/* Chat bubbles */
+.user-msg {
+    background-color: #6366f1;
+    color: white;
+    padding: 10px 15px;
+    border-radius: 15px;
+    margin: 10px 0;
+    width: fit-content;
+    margin-left: auto;
+}
+
+.ai-msg {
+    background-color: #f1f5f9;
+    padding: 10px 15px;
+    border-radius: 15px;
+    margin: 10px 0;
+    width: fit-content;
+}
+
+/* Title */
+.title {
+    text-align: center;
+    font-size: 36px;
+    font-weight: bold;
+    color: #4f46e5;
+}
+
+/* Subtitle */
+.subtitle {
+    text-align: center;
+    color: gray;
+    margin-bottom: 20px;
+}
+
+</style>
 """, unsafe_allow_html=True)
-st.caption("Chat with your PDF like ChatGPT")
 
 # -----------------------------
-# Cache PDF Processing
+# SIDEBAR (LIKE CORTEX)
+# -----------------------------
+with st.sidebar:
+    st.markdown("## 📄 Document Assistant")
+    st.markdown("Upload a PDF and ask questions from it.")
+
+    st.markdown("---")
+
+    uploaded_file = st.file_uploader("Upload PDF", type="pdf")
+
+    if st.button("Clear Chat"):
+        st.session_state.messages = []
+
+    st.markdown("---")
+    st.caption("Powered by LLM & Retrieval-Augmented Generation (RAG)")
+
+# -----------------------------
+# HEADER
+# -----------------------------
+st.markdown('<div class="title">Document AI Assistant</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">Upload a PDF & ask anything</div>', unsafe_allow_html=True)
+
+# -----------------------------
+# CACHE PDF
 # -----------------------------
 @st.cache_resource
 def process_pdf(file):
@@ -27,69 +118,60 @@ def process_pdf(file):
         f.write(file.read())
 
     loader = PyPDFLoader("temp.pdf")
-    documents = loader.load()
+    docs = loader.load()
 
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=50
-    )
-
-    docs = text_splitter.split_documents(documents)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    chunks = splitter.split_documents(docs)
 
     embeddings = HuggingFaceEmbeddings()
-    db = FAISS.from_documents(docs, embeddings)
+    db = FAISS.from_documents(chunks, embeddings)
 
     return db
 
 # -----------------------------
-# Sidebar
-# -----------------------------
-with st.sidebar:
-    st.header("⚙️ Settings")
-    groq_api_key = st.text_input("Enter Groq API Key", type="password")
-    uploaded_file = st.file_uploader("Upload PDF", type="pdf")
-
-    if st.button("🗑️ Clear Chat"):
-        st.session_state.messages = []
-
-# -----------------------------
-# Chat History (IMPORTANT)
+# CHAT MEMORY
 # -----------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 # -----------------------------
-# Process PDF
+# MAIN UI CONTAINER
 # -----------------------------
-if uploaded_file and groq_api_key:
+st.markdown('<div class="glass">', unsafe_allow_html=True)
+
+if uploaded_file:
+
+    if not groq_api_key:
+        st.error("API key missing")
+        st.stop()
+
 
     db = process_pdf(uploaded_file)
     client = Groq(api_key=groq_api_key)
 
-    st.success("✅ PDF ready! Start chatting 👇")
-
-    # Show old messages
+    # Show chat
     for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+        if msg["role"] == "user":
+            st.markdown(f'<div class="user-msg">{msg["content"]}</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="ai-msg">{msg["content"]}</div>', unsafe_allow_html=True)
 
-    # Chat input
-    user_input = st.chat_input("Ask something about your PDF...")
+    # Input
+    user_input = st.chat_input("Ask anything...")
 
     if user_input:
-        # Show user message
-        st.chat_message("user").markdown(user_input)
         st.session_state.messages.append({"role": "user", "content": user_input})
 
-        # Retrieve context
         results = db.similarity_search(user_input, k=5)
         context = "\n".join([doc.page_content for doc in results])
 
         prompt = f"""
 You are an intelligent assistant.
 
-Answer ONLY from the given context.
-If answer is not present, say "Not found in document".
+STRICT RULES:
+- Answer ONLY from the given context
+- DO NOT modify names, numbers, or facts
+- If exact answer not found, say: "Not found in document"
 
 Context:
 {context}
@@ -97,19 +179,21 @@ Context:
 Question:
 {user_input}
 """
-        with st.spinner("🤖 Thinking..."):
+
+        with st.spinner(" Thinking..."):
             response = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}])
-        
+                messages=[{"role": "user", "content": prompt}]
+            )
 
         answer = response.choices[0].message.content
 
-        # Show AI message
-        with st.chat_message("assistant"):
-            st.markdown(answer)
-
         st.session_state.messages.append({"role": "assistant", "content": answer})
 
+        st.rerun()
+
 else:
-    st.info("👈 Please upload a PDF and enter API key from the sidebar")
+    st.info("Upload PDF")
+
+st.markdown('</div>', unsafe_allow_html=True)
+

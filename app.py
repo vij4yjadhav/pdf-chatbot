@@ -7,7 +7,7 @@ from langchain_community.vectorstores import FAISS
 from groq import Groq
 import os
 
-groq_api_key = "you_can_use_ur_api_key"
+groq_api_key = "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"
 
 # -----------------------------
 # PAGE CONFIG
